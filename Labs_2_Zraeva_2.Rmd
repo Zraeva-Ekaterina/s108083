@@ -1,0 +1,306 @@
+---
+title: "Оформление отчеты в Word по Лабораторная работа 2"
+author: "Зраева Екатерина"
+date: "`r format (Sys.time(), '%d %B %Y')`"
+output: 
+  word_document: 
+    reference_docx: Word_styles.docx
+
+---
+
+
+```{r setup, include=FALSE}
+
+knitr::opts_chunk$set(echo = F)
+library('Hmisc')          # для расчёта корреляционной матрицы
+library('corrplot')       # визуализация корреляционных матриц: corrplot()
+library('nortest')        # для теста Андерсона-Дарлинга ad.test()
+library('knitr')
+table.num<-1
+pic.num<-1
+```
+Согласно результатам корреляционного анализа, между зависимой
+и объясняющими переменными существует статистическая взаимосвязь.
+Построим модель множественной регрессии вида:
+
+- Модель 0: $Y = 0,41 + 0,31 X1 + 0,55 X2$
+
+Показатели:
+
+- y - ВРП 2015
+- x1 - Инвестиции в основной капитал 2014
+- x2 - Расходы консолидированных бюджетов субъектов Российской Федерации: на национальную экономику 2014
+- x3 - Использование информационных и коммуникационных технологий в организациях: персональные компьютеры 2014
+- x4 - Внутренние затраты на научные исследования и разработки 2014
+
+Источник данных: <https://www.gks.ru/folder/210/document/13204>
+
+
+
+Исходные данные для работы хранятся в файле Example.Rdata.
+
+«reg.df», в который войдут только нужные нам строки и столбцы, а также фрейм
+«reglog.df», в который войдут логарифмированные данные.
+
+Проведем анализ собранных данных:
+
+Используем функцию anova(), чтобы проверить гипотезы
+об эквивалентности построенных моделей. Процедура проверяет нулевую
+гипотезу: пара следующих друг за другом моделей не отличается по качеству
+аппроксимации – против альтернативной: пара моделей значимо отличается.
+
+Составим таблицу с некоторыми характеристиками качества четырёх
+построенных моделей. Включим в неё скорректированный R-квадрат, Fрасчётное и стандартную ошибку
+
+Таблица - `r table.num` - ANOVA со сравнением значимых  моделей
+```{r}
+# загрузка объектов из сохранённого рабочего пространства
+load('Example.RData')
+
+fit.2 <- lm(y ~ x1, 
+            data = reg.df)
+  # оставляем самый значимый параметр
+# модель с переменной структурой ===============================================
+fit.X1.fo <- lm(y ~ x1 * FO , 
+                data = reg.df)
+
+# создаём фрейм со всеми переменными-факторами (создаём фиктивные)
+X.matrix <- model.matrix(y ~ x1 * FO, data = reg.df)
+
+
+# присоединяем независимую переменную
+data.fit <- cbind(y = reg.df$y, 
+                  data.frame(X.matrix)[, -1])
+
+
+# сохраняем для следующей лабораторной
+data.fit.X1.fo <- data.fit
+# доводим модели до состояния значимости всех коэффициентов ====================
+
+# функция с последовательным исключением незначимых регрессоров
+source('https://raw.githubusercontent.com/aksyuk/R-Practice-basics/master/user_functions/removeFactorsByPValue.R')
+
+# применяем процедуру, сначала без поправок на p-значения
+fit.X1.fo <- removeFactorsByPValue(data = data.fit, 
+                                   y.var.name = 'y')
+
+# строим ПЛР на второй по силе корреляции фактор
+fit.X2 <- lm(y ~ x2, 
+             data = reg.df)
+
+
+# модель с переменной структурой
+fit.X2.fo <- lm(y ~ FO + x2, 
+                data = reg.df)
+
+
+# доводим до состояния значимости
+# создаём фрейм со всеми переменными-факторами (создаём фиктивные)
+X.matrix <- model.matrix(y ~ x2 * FO, data = reg.df)
+data.fit <- cbind(y = reg.df$y, 
+                  data.frame(X.matrix)[, -1])
+
+
+# сохраняем для следующей лабораторной
+data.fit.X2.fo <- data.fit
+
+# доводим до значимости с помощью пользовательской функции
+# без поправки
+fit.X2.fo <- removeFactorsByPValue(data = data.fit, 
+                                   y.var.name = 'y')
+
+# с поправкой
+fit.X2.fo <- removeFactorsByPValue(data = data.fit, 
+                                   y.var.name = 'y',
+                                   p.adj.method = 'bonferroni')
+
+
+# с поправкой, и повышаем уровень значимости
+fit.X2.fo <- removeFactorsByPValue(data = data.fit, 
+                                   y.var.name = 'y',
+                                   p.adj.method = 'bonferroni',
+                                   alpha = 0.10)
+
+
+
+# 3. Сравнение моделей  --------------------------------------------------------
+
+table7 <- data.frame(anova(fit.2, fit.X1.fo))
+kable(table7)
+table.num<-table.num+1
+
+table8 <- data.frame(anova(fit.2, fit.X2.fo))
+kable(table8)
+# основные характеристики качества аппроксимации
+#str(summary(fit.2))
+```
+Таблица - `r table.num` - с характеристиками качества моделей
+```{r}
+
+# список построенных моделей
+models.list <- list(fit.2, fit.X1.fo, fit.X2, fit.X2.fo)
+names(models.list) <- c('fit.2', 'fit.X1.fo', 'fit.X2', 'fit.X2.fo')
+
+# фрейм с характеристиками четырёх моделей
+df.goodness.of.fit <- data.frame(Модель = names(models.list), 
+                                       R.2.скорр = 0,
+                                       F.расч = 0,
+                                       Станд.Ошибка = 0)
+for (i in 1:length(models.list)) {
+  # скорректированный R-квадрат
+  df.goodness.of.fit[i, 'R.2.скорр'] <- 
+    round(summary(models.list[[i]])$adj.r.squared, 3)
+  # F расчётное
+  df.goodness.of.fit[i, 'F.расч'] <- 
+    round(summary(models.list[[i]])$fstatistic[1], 2)
+  # стандартная ошибка
+  df.goodness.of.fit[i, 'Станд.Ошибка'] <- 
+    round(summary(models.list[[i]])$sigma, 1)
+}
+
+table3 <- data.frame(df.goodness.of.fit)
+kable(table3)
+table.num<-table.num+1
+
+
+# 4. Оценка параметров моделей для логарифмов ------------------------------------------------
+
+# множественная регрессия для всех регионов ====================================
+fitlog.1 <- lm(y ~ x1 + x2 + x4, 
+            data = reglog.df)
+#summary(fitlog.1)  #сводка.по.построенной.модели
+
+fitlog.2 <- lm(y ~ x1 + x2, 
+            data = reglog.df)
+#round(summary(fitlog.2)$coef,4)  # оставляем самый значимый параметр
+fitlog.X1 <- lm(y ~ x1, 
+             data = reglog.df)
+#summary(fitlog.X1)
+FO<-reg.df[2]
+reglog.df<-c(reglog.df,FO)
+# модель с переменной структурой ===============================================
+fitlog.X1.fo <- lm(y ~ x1 * FO , 
+                data = reglog.df
+                )
+#summary(fitlog.X1.fo)
+# создаём фрейм со всеми переменными-факторами (создаём фиктивные)
+X.matrixlog <- model.matrix(y ~ x1 * FO, data = reglog.df)
+# результат
+#head(X.matrixlog)
+
+# присоединяем независимую переменную
+data.fitlog <- cbind(y = reglog.df$y, 
+                  data.frame(X.matrixlog)[, -1])
+# результат
+#head(data.fitlog)
+#tail(data.fitlog)
+
+# сохраняем для следующей лабораторной
+data.fitlog.X1.fo <- data.fitlog
+# доводим модели до состояния значимости всех коэффициентов ====================
+
+# функция с последовательным исключением незначимых регрессоров
+source('https://raw.githubusercontent.com/aksyuk/R-Practice-basics/master/user_functions/removeFactorsByPValue.R')
+
+# применяем процедуру, сначала без поправок на p-значения
+fitlog.X1.fo <- removeFactorsByPValue(data = data.fitlog, 
+                                   y.var.name = 'y')
+#summary(fitlog.X1.fo)
+# строим ПЛР на второй по силе корреляции фактор
+fitlog.X2 <- lm(y ~ x2, 
+             data = reglog.df)
+#summary(fit.X2)
+
+# модель с переменной структурой
+fitlog.X2.fo <- lm(y ~ FO + x2, 
+                data = reglog.df)
+#summary(fitlog.X2.fo)
+
+# доводим до состояния значимости
+# создаём фрейм со всеми переменными-факторами (создаём фиктивные)
+X.matrixlog <- model.matrix(y ~ x2 * FO, data = reglog.df)
+data.fitlog <- cbind(y = reglog.df$y, 
+                  data.frame(X.matrixlog)[, -1])
+#head(data.fitlog)
+#tail(data.fitlog)
+
+# сохраняем для следующей лабораторной
+data.fitlog.X2.fo <- data.fitlog
+
+# доводим до значимости с помощью пользовательской функции
+# без поправки
+fitlog.X2.fo <- removeFactorsByPValue(data = data.fitlog, 
+                                   y.var.name = 'y')
+#summary(fitlog.X2.fo)
+
+# с поправкой
+fitlog.X2.fo <- removeFactorsByPValue(data = data.fitlog, 
+                                   y.var.name = 'y',
+                                   p.adj.method = 'bonferroni')
+#summary(fitlog.X2.fo)
+
+# с поправкой, и повышаем уровень значимости
+fitlog.X2.fo <- removeFactorsByPValue(data = data.fitlog, 
+                                   y.var.name = 'y',
+                                   p.adj.method = 'bonferroni',
+                                   alpha = 0.10)
+#summary(fitlog.X2.fo)
+
+```
+Таблица - `r table.num` - ANOVA  со сравнением значимых  моделей для логарифмов
+```{r}
+# 5. Сравнение моделей  --------------------------------------------------------
+
+
+table2 <- data.frame(anova(fitlog.X1, fitlog.X1.fo))
+kable(table2)
+table.num<-table.num+1
+
+table9 <- data.frame(anova(fitlog.X1, fit.X2.fo))
+kable(table9)
+
+# модели с фактором x1
+#anova(fitlog.X1, fitlog.X1.fo)
+
+# модели с фактором x2
+#anova(fitlog.X1, fit.X2.fo)
+
+# основные характеристики качества аппроксимации
+#str(summary(fitlog.X1))
+# скорректированный R-квадрат
+#summary(fitlog.X1)$adj.r.squared
+# F-расчётное
+#summary(fitlog.X1)$fstatistic
+#summary(fitlog.X1)$fstatistic[1]
+# стандартная ошибка модели
+#summary(fitlog.X1)$sigma
+```
+Таблица - `r table.num` - с характеристиками качества моделей для логарифмов
+```{r}
+# список построенных моделей
+modelslog.list <- list(fitlog.X1, fitlog.X1.fo, fitlog.X2, fitlog.X2.fo)
+names(modelslog.list) <- c('fitlog.X1', 'fitlog.X1.fo', 'fitlog.X2', 'fitlog.X2.fo')
+
+# фрейм с характеристиками четырёх моделей
+df.goodness.of.fitlog <- data.frame(Модель = names(modelslog.list), 
+                                       R.2.скорр = 0,
+                                       F.расч = 0,
+                                       Станд.Ошибка = 0)
+for (i in 1:length(modelslog.list)) {
+  # скорректированный R-квадрат
+  df.goodness.of.fitlog[i, 'R.2.скорр'] <- 
+    round(summary(modelslog.list[[i]])$adj.r.squared, 3)
+  # F расчётное
+  df.goodness.of.fitlog[i, 'F.расч'] <- 
+    round(summary(modelslog.list[[i]])$fstatistic[1], 2)
+  # стандартная ошибка
+  df.goodness.of.fitlog[i, 'Станд.Ошибка'] <- 
+    round(summary(modelslog.list[[i]])$sigma, 1)
+}
+#df.goodness.of.fitlog
+#'Таблица с характеристиками качества моделей для логарифмов'
+table1 <- data.frame(df.goodness.of.fitlog)
+kable(table1)
+table.num<-table.num+1
+```
+
